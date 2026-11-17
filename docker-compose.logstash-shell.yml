@@ -1,0 +1,23 @@
+# Interactive Logstash shell for manually running host-edited pipelines.
+# Start the main stack first, then run:
+#   docker compose -f docker-compose.yml -f docker-compose.logstash-shell.yml run --rm logstash-shell
+
+services:
+  logstash-shell:
+    ports:
+      - "3000:3000/udp"
+      - "5000:5000/tcp"
+      - "8080:8080/tcp"
+      - "9600:9600/tcp" #logstash monitoring API
+    image: docker.elastic.co/logstash/logstash:${STACK_VERSION}
+    entrypoint: ["/bin/bash"]
+    working_dir: /usr/share/logstash
+    environment:
+      - DATA_PATH=/data/search_logs.jsonl
+      - ACCESS_LOG_PATH=/data/nginx_access.log
+      - XPACK_MONITORING_ENABLED=false
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - ./logstash:/usr/share/logstash/host-config:rw
+      - ./data:/data:ro
+     # - ./logstash/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro

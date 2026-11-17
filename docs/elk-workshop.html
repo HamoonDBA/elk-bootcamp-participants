@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ELK Workshop</title>
+<!-- Fonts: Archivo (display), Nunito (body), IBM Plex Mono (code), Vazirmatn (Persian runs) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;800;900&family=Nunito:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&family=Vazirmatn:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ===========================================
+   CSS CUSTOM PROPERTIES (THEME)
+   Swiss Modern: white, black, one signal red, a visible grid.
+   Change these to restyle the whole deck.
+   =========================================== */
+:root {
+    --stage-bg: #111111;
+    --slide-bg: #ffffff;
+    --ink: #0d0d0d;
+    --ink-2: #3b3b3b;
+    --red: #ff3300;
+    --blue: #1f5fbf;
+    --rule: #d9d9d9;
+    --soft: #f3f3f1;
+    --grid: rgba(13, 13, 13, 0.06);
+    --font-display: 'Archivo', sans-serif;
+    --font-body: 'Nunito', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===========================================
+   FIXED 16:9 STAGE: MANDATORY BASE STYLES
+   Include this ENTIRE file in every presentation.
+   Slides are authored at 1920×1080 and scaled as a whole.
+   =========================================== */
+
+/* 1. Lock the browser viewport */
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--stage-bg, #000);
+}
+
+/* 2. Full-window deck viewport */
+.deck-viewport {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--stage-bg, #000);
+}
+
+/* 3. Fixed 16:9 design canvas.
+   JavaScript sets transform: translate(...) scale(...). */
+.deck-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    transform-origin: 0 0;
+    background: var(--slide-bg, #fff);
+}
+
+/* 4. Slides stack inside the fixed stage.
+   Content must be laid out at 1920×1080, not reflowed per device. */
+.slide {
+    position: absolute;
+    inset: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    background: var(--slide-bg, #fff);
+}
+
+.slide.active,
+.slide.visible {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 1;
+}
+
+/* 5. Keep media inside authored slide bounds */
+img,
+video,
+canvas,
+svg {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+/* 6. Presentation chrome stays outside the slide design system */
+.deck-controls {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    z-index: 1000;
+}
+
+/* 7. Print one fixed-size slide per page */
+@media print {
+    html,
+    body {
+        width: 1920px;
+        height: auto;
+        overflow: visible;
+        background: #fff;
+    }
+
+    .deck-viewport {
+        position: static;
+        overflow: visible;
+        background: #fff;
+    }
+
+    .deck-stage {
+        position: static;
+        width: auto;
+        height: auto;
+        transform: none !important;
+        background: none;
+    }
+
+    .slide {
+        position: relative;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        width: 1920px;
+        height: 1080px;
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .slide:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+
+    .deck-controls {
+        display: none !important;
+    }
+}
+
+/* 8. Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.2s !important;
+    }
+}
+
+
+/* ===========================================
+   SHARED SLIDE BASE
+   =========================================== */
+.slide { font-family: var(--font-body); color: var(--ink); }
+.slide.content {
+    background-color: #fff;
+    background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 160px 135px;
+}
+.fa { font-family: 'Vazirmatn', var(--font-body); }
+
+/* === REVEAL ANIMATION (subtle, fast: Swiss restraint) === */
+.reveal { opacity: 0; transform: translateY(24px);
+    transition: opacity .5s var(--ease), transform .5s var(--ease); }
+.slide.visible .reveal { opacity: 1; transform: none; }
+.slide.visible .body > .reveal:nth-child(2) { transition-delay: .08s; }
+.slide.visible .body > .reveal:nth-child(3) { transition-delay: .16s; }
+.slide.visible .body > .reveal:nth-child(4) { transition-delay: .24s; }
+
+/* ===========================================
+   CONTENT SLIDE FRAME
+   top bar → title → body (flex column, fills the stage)
+   =========================================== */
+.frame { position: absolute; inset: 64px 120px 72px; display: flex; flex-direction: column; gap: 40px; }
+.top { display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: .16em; text-transform: uppercase; }
+.top .sec::before { content: ""; display: inline-block; width: 18px; height: 18px; background: var(--red); margin-right: 16px; vertical-align: -2px; }
+.pg { font-family: var(--font-mono); font-size: 22px; letter-spacing: .08em; color: var(--ink-2); }
+h2.t { font-family: var(--font-display); font-weight: 800; font-size: 72px; line-height: 1.03; letter-spacing: -0.02em; max-width: 1620px; }
+.body { flex: 1; display: flex; flex-direction: column; gap: 44px; min-height: 0; }
+.exercise h2.t { color: var(--red); }
+
+/* === TEXT BLOCKS === */
+.h3 { font-family: var(--font-display); font-weight: 800; font-size: 34px; margin-bottom: 16px; padding-top: 14px; border-top: 6px solid var(--ink); }
+.h3.red { border-color: var(--red); }
+.note { font-size: 31px; line-height: 1.4; border-left: 6px solid var(--red); padding-left: 22px; max-width: 1560px; }
+.big { font-size: 34px; line-height: 1.45; margin-bottom: 20px; }
+.cap { font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 12px; }
+.mono { font-family: var(--font-mono); font-size: 30px; color: var(--ink-2); }
+.list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.list li { font-size: 32px; line-height: 1.35; padding-left: 34px; position: relative; }
+.list li::before { content: ""; position: absolute; left: 0; top: 18px; width: 16px; height: 4px; background: var(--red); }
+.steps { counter-reset: s; list-style: none; display: flex; flex-direction: column; gap: 22px; max-width: 1600px; }
+.steps li { counter-increment: s; font-size: 38px; line-height: 1.35; padding-left: 86px; position: relative; }
+.steps li::before { content: counter(s, decimal-leading-zero); position: absolute; left: 0; top: -4px;
+    font-family: var(--font-display); font-weight: 900; font-size: 40px; color: var(--red); }
+
+/* === LAYOUT GRIDS === */
+.grid { display: grid; gap: 28px; }
+.two { display: grid; gap: 56px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+/* === CARDS: a rule on top, no box (Swiss) === */
+.card { border-top: 6px solid var(--ink); padding-top: 18px; }
+.card.red { border-color: var(--red); }
+.card h3 { font-family: var(--font-display); font-weight: 800; font-size: 38px; line-height: 1.1; margin-bottom: 10px; }
+.card p { font-size: 30px; line-height: 1.4; color: var(--ink-2); }
+
+/* === STATS === */
+.stats { display: flex; gap: 64px; }
+.stats div { display: flex; flex-direction: column; gap: 6px; }
+.stats b { font-family: var(--font-display); font-weight: 900; font-size: 96px; line-height: 1; color: var(--red); letter-spacing: -0.03em; }
+.stats span { font-size: 30px; color: var(--ink-2); max-width: 420px; }
+.stats.col1 { flex-direction: column; gap: 24px; }
+.stats.col1 b { font-size: 64px; }
+
+/* === TABLES === */
+.tbl { width: 100%; border-collapse: collapse; font-size: 29px; table-layout: fixed; }
+.tbl th { font-family: var(--font-display); font-weight: 600; font-size: 23px; letter-spacing: .1em; text-transform: uppercase;
+    text-align: left; padding: 0 18px 14px 0; border-bottom: 4px solid var(--ink); }
+.tbl td { padding: 15px 18px 15px 0; border-bottom: 1px solid var(--rule); line-height: 1.32; vertical-align: top; }
+.tbl.small { font-size: 27px; }
+.tbl.fixw { width: 470px; flex: none; }
+
+/* === CODE === */
+.code { font-family: var(--font-mono); font-size: 26px; line-height: 1.55; background: var(--ink); color: #f1f1ee;
+    padding: 26px 30px; white-space: pre; overflow: hidden; }
+.code.light { background: var(--soft); color: var(--ink); border-left: 6px solid var(--red); }
+.code.err { background: #fff; color: #b3261e; border: 3px solid #b3261e; }
+
+/* === FLOW DIAGRAMS: boxes joined by arrows === */
+.flow, .arch { display: flex; align-items: center; gap: 0; }
+.flow .box { flex: 1; align-self: stretch; }
+.box { border: 3px solid var(--ink); padding: 22px 24px; background: #fff; display: flex; flex-direction: column; gap: 10px; }
+.box h4 { font-family: var(--font-display); font-weight: 800; font-size: 36px; line-height: 1.1; }
+.box p { font-size: 27px; line-height: 1.35; color: var(--ink-2); }
+.box.red { border-color: var(--red); }
+.box.dark { background: var(--ink); color: #fff; border-color: var(--ink); }
+.box.dark p { color: #cfcfcf; }
+.box.dashed { border-style: dashed; border-color: var(--blue); }
+.arch .box { width: 330px; flex: none; }
+.arch .box.wide, .arch .stackcol.wide { flex: 1; width: auto; }
+.arr { flex: none; width: 70px; height: 3px; background: var(--red); position: relative; margin: 0 10px; }
+.arr::after { content: ""; position: absolute; right: -2px; top: -9px; border-left: 16px solid var(--red);
+    border-top: 10px solid transparent; border-bottom: 10px solid transparent; }
+.arr.both::before { content: ""; position: absolute; left: -2px; top: -9px; border-right: 16px solid var(--red);
+    border-top: 10px solid transparent; border-bottom: 10px solid transparent; }
+.arr.long { width: 190px; }
+.arr em { position: absolute; left: 0; right: 0; top: 16px; font-style: normal; font-family: var(--font-mono); font-size: 20px; text-align: center; color: var(--ink-2); }
+.stackcol { display: flex; flex-direction: column; gap: 12px; width: 340px; flex: none; }
+.stackcol .lbl, .lbl { font-family: var(--font-display); font-weight: 600; font-size: 20px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.stackcol i { font-style: normal; font-size: 28px; padding: 12px 16px; border: 2px solid var(--ink); background: #fff; }
+.stackcol i.blue { border-color: var(--blue); color: var(--blue); font-family: var(--font-mono); font-size: 25px; }
+.stackcol.dark { background: var(--ink); padding: 22px; width: auto; }
+.stackcol.dark .lbl { color: #bbb; }
+.stackcol.dark i { background: #222; color: #fff; border-color: #444; }
+.stackcol.dark i.sel { border-color: var(--red); }
+.chips { display: flex; gap: 10px; }
+.chips i { font-style: normal; font-family: var(--font-mono); font-size: 25px; background: var(--red); color: #fff; padding: 8px 14px; }
+.down { display: grid; grid-template-columns: repeat(5, 1fr); gap: 80px; padding: 0 0; }
+.down span { justify-self: center; width: 3px; height: 50px; background: var(--red); position: relative; }
+.down span::after { content: ""; position: absolute; left: -9px; bottom: -2px; border-top: 16px solid var(--red);
+    border-left: 10px solid transparent; border-right: 10px solid transparent; }
+.bar { display: flex; justify-content: space-between; align-items: center; background: var(--ink); color: #fff; padding: 30px 40px; }
+.bar b { font-family: var(--font-display); font-weight: 800; font-size: 38px; }
+.bar span { font-family: var(--font-mono); font-size: 27px; color: #ff8a66; }
+
+/* === MINI BAR CHART (DDoS) === */
+.bars { height: 360px; display: flex; align-items: flex-end; gap: 10px; border-bottom: 3px solid var(--ink); }
+.bars i { flex: 1; background: #9a9a9a; }
+.bars i.hot { background: var(--red); }
+.axis { display: flex; justify-content: space-between; font-size: 26px; color: var(--ink-2); margin-top: 8px; }
+.axis .r { color: var(--red); }
+
+/* === CLUSTER NODES / SHARDS === */
+.nodes { display: flex; gap: 32px; align-items: stretch; }
+.node { flex: 1; border: 3px solid var(--ink); padding: 22px 26px; display: flex; flex-direction: column; gap: 14px; }
+.node b { font-family: var(--font-display); font-weight: 800; font-size: 38px; }
+.node span { font-size: 28px; color: var(--ink-2); }
+.node.off { border-style: dashed; border-color: var(--red); }
+.node.off b, .node.off span { color: var(--red); }
+.nodecap { flex: 1.3; font-size: 32px; line-height: 1.4; align-self: center; }
+.shards { display: flex; gap: 14px; }
+.shards i { flex: 1; font-style: normal; text-align: center; font-family: var(--font-mono); font-weight: 500; font-size: 30px; padding: 20px 0; }
+.shards .p { background: var(--blue); color: #fff; }
+.shards .r { border: 3px dashed var(--blue); color: var(--blue); }
+.formula { background: var(--ink); color: #fff; font-family: var(--font-mono); font-size: 46px; padding: 40px 48px; display: flex; flex-direction: column; gap: 14px; }
+.formula small { font-family: var(--font-body); font-size: 28px; color: #bbb; }
+
+/* === ILM PHASES === */
+.phases { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+.ph { padding: 28px; color: #fff; display: flex; flex-direction: column; gap: 10px; min-height: 220px; }
+.ph h4 { font-family: var(--font-display); font-weight: 800; font-size: 38px; }
+.ph p { font-size: 27px; line-height: 1.35; }
+.ph.hot { background: var(--red); } .ph.warm { background: #e0702f; } .ph.cold { background: var(--blue); }
+.ph.frozen { background: var(--ink); } .ph.del { background: #fff; color: var(--ink); border: 3px dashed var(--ink); }
+
+/* === BEST-PRACTICE CHECKS === */
+.checks p { font-size: 32px; line-height: 1.35; border-top: 3px solid var(--ink); padding-top: 14px; }
+.checks b { font-family: var(--font-display); font-weight: 800; }
+
+/* ===========================================
+   TITLE SLIDE
+   =========================================== */
+.title { background-color: #fff;
+    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 160px 135px; }
+.t-block { position: absolute; left: 1280px; top: 0; width: 640px; height: 1080px; background: var(--ink); }
+.t-disc { position: absolute; left: 1150px; top: 110px; width: 260px; height: 260px; border-radius: 50%; background: var(--red); }
+.t-kicker { position: absolute; left: 160px; top: 135px; font-family: var(--font-display); font-weight: 500; font-size: 28px; letter-spacing: .18em; text-transform: uppercase; }
+.title h1 { position: absolute; left: 150px; top: 300px; width: 1000px; font-family: var(--font-display); font-weight: 900; font-size: 230px; line-height: .86; letter-spacing: -0.04em; }
+.title h1 span { color: var(--red); }
+.t-sub { position: absolute; left: 160px; top: 760px; width: 860px; font-size: 40px; line-height: 1.3; font-weight: 600; }
+.t-stack { position: absolute; left: 1360px; top: 700px; width: 480px; font-family: var(--font-display); font-weight: 800; font-size: 44px; line-height: 1.25; color: #fff; }
+.t-stack small { display: block; margin-top: 24px; font-family: var(--font-body); font-weight: 400; font-size: 26px; color: #bbb; }
+.t-rule { position: absolute; left: 160px; top: 945px; width: 960px; height: 6px; background: var(--ink); }
+.t-foot { position: absolute; left: 160px; top: 975px; font-family: var(--font-display); font-size: 24px; letter-spacing: .12em; text-transform: uppercase; }
+
+/* ===========================================
+   SECTION DIVIDER: black slide, huge number, red disc
+   =========================================== */
+.divider { background: var(--ink); color: #fff; }
+.d-num { position: absolute; left: 140px; top: 70px; font-family: var(--font-display); font-weight: 900; font-size: 420px; line-height: 1; color: transparent; -webkit-text-stroke: 4px #fff; letter-spacing: -0.04em; }
+.d-disc { position: absolute; right: 160px; top: 160px; width: 260px; height: 260px; border-radius: 50%; background: var(--red); }
+.divider h2 { position: absolute; left: 160px; top: 600px; width: 1600px; font-family: var(--font-display); font-weight: 900; font-size: 128px; line-height: .95; letter-spacing: -0.03em; }
+.divider p { position: absolute; left: 160px; top: 880px; width: 1500px; font-size: 34px; line-height: 1.35; color: #c9c9c9; }
+.divider .pg { position: absolute; right: 120px; bottom: 64px; color: #888; }
+
+/* ===========================================
+   CHROME OUTSIDE THE STAGE: progress + edit toggle
+   =========================================== */
+.progress { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--red); z-index: 1000; transition: width .3s; }
+.edit-hotzone { position: fixed; top: 0; left: 0; width: 80px; height: 80px; z-index: 10000; cursor: pointer; }
+.edit-toggle { position: fixed; top: 16px; left: 16px; z-index: 10001; font: 600 14px var(--font-body); padding: 8px 12px;
+    border: 2px solid var(--red); background: #fff; color: var(--ink); opacity: 0; pointer-events: none; transition: opacity .3s; }
+.edit-toggle.show, .edit-toggle.active { opacity: 1; pointer-events: auto; }
+.edit-toggle.active { background: var(--red); color: #fff; }
+[contenteditable="true"]:focus { outline: 2px dashed var(--red); outline-offset: 4px; }
+</style>
+</head>
+<body>
+<div class="deck-viewport">
+  <main class="deck-stage" id="deckStage">
+<section class="slide title"><!-- notes: Check that everyone has Elasticsearch and Kibana open and can run a Logstash pipeline. -->
+  <div class="t-block"></div><div class="t-disc"></div>
+  <p class="t-kicker reveal">Data Engineering Bootcamp 2</p>
+  <h1 class="reveal">ELK<br>Work<span>shop</span></h1>
+  <p class="t-sub reveal">From a raw event file to an index, queries and a dashboard that explain an incident.</p>
+  <div class="t-stack reveal">Elasticsearch<br>Logstash<br>Kibana<small>8.19.5 · six hours · hands-on</small></div>
+  <div class="t-rule"></div><p class="t-foot">Hamrah-e Aval · 2026</p>
+</section>
+<section class="slide content content"><!-- notes: Times are targets. If concepts run long, shorten the dashboard step, never ingest or queries. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Plan · 360 min</span><span class="pg">02 / 61</span></div>
+    <h2 class="t reveal">Concepts first, then one problem solved end to end</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(5,1fr)"><div class="card "><h3>01 · Why logs</h3><p>~20 min. Central logging, a DDoS example, the data engineer’s role.</p></div><div class="card "><h3>02 · Logstash</h3><p>~50 min. Architecture, plugins, deployments, not losing data.</p></div><div class="card "><h3>03 · Elasticsearch</h3><p>~70 min. Cluster, shards, queries, ILM, mappings.</p></div><div class="card "><h3>04 · Kibana</h3><p>~15 min. Features and how it compares to BI tools.</p></div><div class="card red"><h3>05 · Hands-on</h3><p>Rest of the day. One incident, solved in eight steps.</p></div></div><p class="note reveal">Three 10-minute breaks: after Part 2, in the middle of Part 5, before the final challenge.</p></div>
+  </div>
+</section>
+<section class="slide divider">
+  <div class="d-num reveal">01</div><div class="d-disc"></div>
+  <h2 class="reveal">Why log shipping matters</h2><p class="reveal">Every system already tells you what went wrong. The question is whether you hear it in time.</p>
+  <span class="pg">03 / 61</span>
+</section>
+<section class="slide content content"><!-- notes: The request id that travels through all layers is what lets you join them later. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Why logs · every layer talks</span><span class="pg">04 / 61</span></div>
+    <h2 class="t reveal">One user request leaves a trace in five places</h2>
+    <div class="body"><div class="flow reveal"><div class="box "><h4>Edge / CDN</h4><p>client IP, country, TLS, cache hit</p></div><span class="arr"></span><div class="box "><h4>Load balancer</h4><p>status, upstream time, backend</p></div><span class="arr"></span><div class="box "><h4>Application</h4><p>user, feature, errors, business events</p></div><span class="arr"></span><div class="box "><h4>Database</h4><p>slow queries, locks, connections</p></div><span class="arr"></span><div class="box "><h4>OS / infra</h4><p>auth, kernel, disk, restarts</p></div></div><div class="down reveal"><span></span><span></span><span></span><span></span><span></span></div><div class="bar reveal"><b>Central log platform</b><span>collect → parse → store → search → alert</span></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Containers make this urgent: a rescheduled pod takes its local logs with it. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Why logs · centralize</span><span class="pg">05 / 61</span></div>
+    <h2 class="t reveal">Logs left on servers are evidence nobody reads in time</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><h3 class="h3">Without shipping</h3><pre class="code reveal">ssh app-01 … app-40
+grep &quot;timeout&quot; /var/log/…</pre><ul class="list reveal "><li>Logs rotate away or die with the container</li><li>Every layer has its own clock and format</li><li>No history, no trends, no alerts</li><li>Shell access to production for everyone</li></ul></div><div class="col"><h3 class="h3 red">With central logs</h3><pre class="code reveal">status &gt;= 500 and service : &quot;search&quot;</pre><ul class="list reveal "><li>Kept by policy, not by disk luck</li><li>One schema, one time zone, one search</li><li>Trends, dashboards and alerts</li><li>Access control and an audit trail</li></ul></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: ELK detects and helps investigate; mitigation happens at the edge (rate limits, WAF). -->
+  <div class="frame">
+    <div class="top"><span class="sec">Why logs · example: spotting a DDoS</span><span class="pg">06 / 61</span></div>
+    <h2 class="t reveal">Access logs show an attack before users report it</h2>
+    <div class="body"><div class="flow reveal"><div class="box "><h4>Nginx / LB</h4><p>every request</p></div><span class="arr"></span><div class="box red"><h4>Logstash</h4><p>grok, geoip, user agent</p></div><span class="arr"></span><div class="box "><h4>Elasticsearch</h4><p>per-IP, per-minute stats</p></div><span class="arr"></span><div class="box dark"><h4>Kibana alert</h4><p>rule fires, on-call paged</p></div></div><table class="tbl reveal "><tr><th style="width:34%">Signal in the logs</th><th style="width:33%">Normal</th><th style="width:33%">Under attack</th></tr><tr><td>Requests per minute</td><td>steady daily curve</td><td>sudden step up</td></tr><tr><td>Requests per source IP</td><td>a few, spread out</td><td>hundreds from a small set</td></tr><tr><td>Top paths and user agents</td><td>varied</td><td>one path, one agent string</td></tr><tr><td>Share of 429 / 503</td><td>near zero</td><td>climbing</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Derive the threshold from a normal week (for example p99 of per-IP rate). -->
+  <div class="frame">
+    <div class="top"><span class="sec">Why logs · the query behind the alert</span><span class="pg">07 / 61</span></div>
+    <h2 class="t reveal">Who is sending too much, right now?</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1.15fr 1fr"><div class="col"><pre class="code reveal">FROM nginx-access
+| WHERE @timestamp &gt; NOW() - 15 minutes
+| STATS req = COUNT(*),
+        paths = COUNT_DISTINCT(url.path)
+  BY source.ip,
+     minute = BUCKET(@timestamp, 1 minute)
+| WHERE req &gt; 600
+| SORT req DESC</pre></div><div class="col"><p class="cap">Requests per minute (illustrative)</p><div class="bars"><i style="height:60px"></i><i style="height:66px"></i><i style="height:58px"></i><i style="height:70px"></i><i style="height:64px"></i><i style="height:62px"></i><i style="height:250px" class="hot"></i><i style="height:285px" class="hot"></i><i style="height:270px" class="hot"></i><i style="height:280px" class="hot"></i></div><div class="axis"><span>baseline</span><span class="r">attack starts</span></div><p class="note reveal">Saved as a Kibana alert rule, the same query runs every minute and pages someone when it returns rows.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Logs are the largest and messiest dataset most companies have. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Why logs · the data engineer’s part</span><span class="pg">08 / 61</span></div>
+    <h2 class="t reveal">Data engineering is more than ETL into a warehouse</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(4,1fr)"><div class="card "><h3>Observability</h3><p>Is each service healthy, and since when not?</p></div><div class="card "><h3>Monitoring</h3><p>Error rate, latency and volume per release and region</p></div><div class="card "><h3>Troubleshooting</h3><p>Follow one request id through every layer</p></div><div class="card "><h3>Security</h3><p>Logins, abuse, attacks, audit trails</p></div></div><div class="bar reveal"><b>Same skills, new source</b><span>schemas · pipelines · data quality · dedup · time zones · retention · cost</span></div></div>
+  </div>
+</section>
+<section class="slide divider">
+  <div class="d-num reveal">02</div><div class="d-disc"></div>
+  <h2 class="reveal">Logstash</h2><p class="reveal">Getting events in, cleaned and delivered without losing any on the way.</p>
+  <span class="pg">09 / 61</span>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · what it is</span><span class="pg">10 / 61</span></div>
+    <h2 class="t reveal">A server-side pipeline: read from anywhere, reshape, write anywhere</h2>
+    <div class="body"><div class="stats reveal"><div><b>200+</b><span>plugins for inputs, filters, outputs and codecs</span></div><div><b>JVM</b><span>runs on Java; plan about 1–4 GB heap per instance</span></div><div><b>1 event</b><span>at a time: stateless per event, no joins or windows</span></div></div><p class="note reveal">Not a message queue and not a stream processor like Flink. A configurable, per-event ETL service.</p></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Filebeat and Vector are lightweight shippers. Spark and Flink handle distributed, stateful processing. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · competitors</span><span class="pg">11 / 61</span></div>
+    <h2 class="t reveal">Shippers sit at the source; processors are heavier and central</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:24%">Tool</th><th style="width:16%">Language</th><th style="width:26%">Typical place</th><th style="width:34%">Strength</th></tr><tr><td>Spark / Flink</td><td>Java / Scala</td><td>distributed cluster</td><td>stateful streams, windows and joins</td></tr><tr><td>Vector</td><td>Rust</td><td>host or central</td><td>fast, typed transforms (VRL)</td></tr><tr><td>Filebeat</td><td>Go</td><td>host or Kubernetes node</td><td>lightweight file shipping to Elastic</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Back-pressure: slow output → workers block → queue fills → inputs stop. UDP inputs then drop data. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · architecture</span><span class="pg">12 / 61</span></div>
+    <h2 class="t reveal">Inputs fill a queue; workers filter and send in batches</h2>
+    <div class="body"><div class="arch reveal"><div class="stackcol"><span class="lbl">Inputs + codec</span><i>kafka</i><i>beats</i><i>file</i></div><span class="arr"></span><div class="box dashed"><h4>Queue</h4><p>memory (default) or persisted on disk</p></div><span class="arr"></span><div class="box red wide"><h4>Workers × N</h4><div class="chips"><i>grok</i><i>date</i><i>mutate</i></div><p>each worker takes a batch, runs every filter, then every output</p></div><span class="arr"></span><div class="stackcol"><span class="lbl">Outputs</span><i>elasticsearch</i><i>kafka</i><i>s3</i></div></div><table class="tbl reveal "><tr><th style="width:30%">Setting</th><th style="width:20%">Default</th><th style="width:50%">Tune when</th></tr><tr><td>pipeline.workers</td><td>CPU cores</td><td>filters are CPU-heavy (grok, ruby)</td></tr><tr><td>pipeline.batch.size</td><td>125</td><td>you want bigger bulk requests</td></tr><tr><td>queue.type</td><td>memory</td><td>in-flight events must survive a crash: persisted</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · plugins</span><span class="pg">13 / 61</span></div>
+    <h2 class="t reveal">The plugins you will meet in almost every pipeline</h2>
+    <div class="body"><div class="grid reveal" style="grid-template-columns:repeat(3,1fr)"><div class="col"><table class="tbl reveal small"><tr><th style="width:46%">Input</th><th style="width:54%">Does</th></tr><tr><td>kafka</td><td>topics, consumer group</td></tr><tr><td>beats</td><td>Filebeat, Agent</td></tr><tr><td>file</td><td>tail or read files</td></tr><tr><td>http</td><td>webhooks, apps</td></tr><tr><td>jdbc</td><td>SQL on a schedule</td></tr><tr><td>syslog</td><td>network devices</td></tr></table></div><div class="col"><table class="tbl reveal small"><tr><th style="width:46%">Filter</th><th style="width:54%">Does</th></tr><tr><td>grok</td><td>regex parsing</td></tr><tr><td>dissect</td><td>split by delimiters</td></tr><tr><td>date</td><td>set @timestamp</td></tr><tr><td>mutate</td><td>rename, convert</td></tr><tr><td>geoip</td><td>IP → location</td></tr><tr><td>useragent</td><td>browser, OS</td></tr></table></div><div class="col"><table class="tbl reveal small"><tr><th style="width:46%">Output</th><th style="width:54%">Does</th></tr><tr><td>elasticsearch</td><td>index, data stream</td></tr><tr><td>kafka</td><td>a topic</td></tr><tr><td>s3</td><td>cheap archive</td></tr><tr><td>file</td><td>local file</td></tr><tr><td>http</td><td>any API</td></tr><tr><td>stdout</td><td>debugging</td></tr></table></div></div><p class="note reveal">Also worth knowing: json, kv, fingerprint (stable ids), translate (lookups), ruby (last resort).</p></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Lines that do not match get _grokparsefailure: route them, do not drop them. Prefer dissect for fixed formats. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · grok in one example</span><span class="pg">14 / 61</span></div>
+    <h2 class="t reveal">From a line of text to fields you can query</h2>
+    <div class="body"><pre class="code light reveal">10.4.2.17 - - [03/Nov/2026:13:41:07 +0330] "GET /search?q=pizza HTTP/1.1" 504 0 4120</pre><div class="two reveal" style="grid-template-columns:1.35fr 1fr"><div class="col"><pre class="code reveal">filter {
+  grok {
+    match =&gt; { &quot;message&quot; =&gt;
+      &quot;%{IP:client} - - \[%{HTTPDATE:ts}\]
+       \&quot;%{WORD:method} %{URIPATH:path}%{GREEDYDATA}\&quot;
+       %{NUMBER:status:int} %{NUMBER:bytes:int}
+       %{NUMBER:took_ms:int}&quot; }
+  }
+  date { match =&gt; [&quot;ts&quot;, &quot;dd/MMM/yyyy:HH:mm:ss Z&quot;] }
+}</pre></div><div class="col"><table class="tbl reveal "><tr><th style="width:42%">Field</th><th style="width:58%">Value</th></tr><tr><td>client</td><td>10.4.2.17</td></tr><tr><td>method</td><td>GET</td></tr><tr><td>path</td><td>/search</td></tr><tr><td>status</td><td>504</td></tr><tr><td>took_ms</td><td>4120</td></tr><tr><td>@timestamp</td><td>2026-11-03T10:11:07Z</td></tr></table></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · when to use it</span><span class="pg">15 / 61</span></div>
+    <h2 class="t reveal">Use it when events need real work in transit</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><h3 class="h3">Good choice</h3><ul class="list reveal "><li>Many formats to parse: grok, dissect, kv, json</li><li>Enrichment: geoip, lookups, user agent</li><li>Routing one stream to several outputs</li><li>Consuming Kafka into Elasticsearch at scale</li><li>Sources without a shipper: JDBC, HTTP, syslog</li></ul></div><div class="col"><h3 class="h3 red">Think twice</h3><ul class="list reveal "><li>On every host or container: too heavy</li><li>Simple JSON: an ingest pipeline is enough</li><li>Joins, windows, state: Flink or Kafka Streams</li><li>Exactly-once required: it is at-least-once</li><li>No one to operate another JVM service</li></ul></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Even here: persisted queue, run as a service, --config.test_and_exit before reload. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · deployment 1 of 3</span><span class="pg">16 / 61</span></div>
+    <h2 class="t reveal">Single instance: simple, and a single point of failure</h2>
+    <div class="body"><div class="arch reveal"><div class="stackcol"><span class="lbl">Hosts</span><i>app-01 + Filebeat</i><i>app-02 + Filebeat</i><i>app-03 + Filebeat</i></div><span class="arr"></span><div class="box red"><h4>Logstash</h4><p>persisted queue on local disk</p></div><span class="arr"></span><div class="box dark"><h4>Elasticsearch</h4><p>single cluster</p></div></div><div class="grid reveal " style="grid-template-columns:repeat(2,1fr)"><div class="card "><h3>Fine for</h3><p>Dev, small teams, a few thousand events per second, one site.</p></div><div class="card red"><h3>Risk</h3><p>A restart or crash pauses ingest. Filebeat retries, but log rotation sets the limit.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Without Kafka: Beats with several Logstash hosts and loadbalance: true. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · deployment 2 of 3</span><span class="pg">17 / 61</span></div>
+    <h2 class="t reveal">Kafka in front, Logstash as a consumer group</h2>
+    <div class="body"><div class="arch reveal"><div class="stackcol"><span class="lbl">Producers</span><i>shippers</i><i>apps</i><i>CDC, devices</i></div><span class="arr"></span><div class="box dashed"><h4>Kafka</h4><p>12 partitions, 3 days retention</p></div><span class="arr"></span><div class="stackcol wide"><span class="lbl">group_id: logs-es</span><i class="blue">logstash-1 · p0–3</i><i class="blue">logstash-2 · p4–7</i><i class="blue">logstash-3 · p8–11</i></div><span class="arr"></span><div class="box dark"><h4>ES cluster</h4><p>bulk indexing</p></div></div><table class="tbl reveal "><tr><th style="width:30%">Event</th><th style="width:70%">What happens</th></tr><tr><td>logstash-2 crashes</td><td>Its partitions move to the others; uncommitted offsets are re-read</td></tr><tr><td>Elasticsearch is slow</td><td>Consumers lag; the backlog waits safely in Kafka</td></tr><tr><td>Traffic doubles</td><td>Add instances, up to one per partition</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: 8.x: logstash integration plugin (output/input logstash) with TLS and acks. In one instance: pipeline-to-pipeline. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · deployment 3 of 3</span><span class="pg">18 / 61</span></div>
+    <h2 class="t reveal">Collect at the edge, process in the center</h2>
+    <div class="body"><div class="arch reveal"><div class="stackcol"><span class="lbl">Edge Logstash</span><i>DC Tehran · PQ</i><i>DC Tabriz · PQ</i><i>DMZ · outbound only</i></div><span class="arr long"><em>output logstash (TLS)</em></span><div class="box red"><h4>Central Logstash</h4><p>input logstash, 2+ nodes, heavy parsing and enrichment</p></div><span class="arr"></span><div class="box dark"><h4>Elasticsearch</h4><p>one set of credentials</p></div></div><div class="grid reveal " style="grid-template-columns:repeat(2,1fr)"><div class="card "><h3>Why</h3><p>Network zones, slow WAN links, local buffering, credentials in one place.</p></div><div class="card red"><h3>Cost</h3><p>One more hop to operate and monitor. If Kafka exists, it is usually the better link.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: We hit row five while building this class: a numeric comparison on a missing field dropped events with only a WARN. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · where logs go missing</span><span class="pg">19 / 61</span></div>
+    <h2 class="t reveal">Most lost logs are lost silently</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:42%">Cause</th><th style="width:58%">Prevention</th></tr><tr><td>Crash with the memory queue</td><td>queue.type: persisted, in-flight events survive a restart</td></tr><tr><td>Rejected by Elasticsearch (mapping conflict)</td><td>dead letter queue; explicit mappings; alert on 400s</td></tr><tr><td>Fire-and-forget input (UDP syslog)</td><td>acknowledged inputs: Beats, Kafka, TCP with a buffer</td></tr><tr><td>File rotated before it was read</td><td>monitor shipper lag; keep rotated files long enough</td></tr><tr><td>A filter drops events by mistake</td><td>tag and route instead of drop; compare events in vs out</td></tr><tr><td>Wrong time puts data in an index ILM deletes</td><td>parse time with a zone; alert on events far from now</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: DLQ only works with the elasticsearch output, for 400/404 rejections. In Kubernetes put the PQ on a persistent volume. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Logstash · surviving a crash</span><span class="pg">20 / 61</span></div>
+    <h2 class="t reveal">Acknowledge only what is safely on disk</h2>
+    <div class="body"><div class="flow reveal"><div class="box "><h4>Kafka / Beats</h4><p>resend until acked</p></div><span class="arr"></span><div class="box dashed"><h4>Persisted queue</h4><p>on disk, then ack the source</p></div><span class="arr"></span><div class="box red"><h4>Filters</h4><p>tag, never drop</p></div><span class="arr"></span><div class="box dark"><h4>Elasticsearch</h4><p>document_id = stable key</p></div></div><div class="grid reveal" style="grid-template-columns:repeat(3,1fr)"><pre class="code">queue.type: persisted
+queue.max_bytes: 4gb</pre><pre class="code">dead_letter_queue.enable: true
+input {
+  dead_letter_queue {…}
+}</pre><pre class="code">document_id =&gt;
+  &quot;%{event_id}&quot;</pre></div><p class="note reveal">Result: at-least-once delivery, and replays overwrite the same document instead of duplicating it.</p></div>
+  </div>
+</section>
+<section class="slide divider">
+  <div class="d-num reveal">03</div><div class="d-disc"></div>
+  <h2 class="reveal">Elasticsearch</h2><p class="reveal">From one document to a cluster: where data lives, how a query runs, how to keep it healthy.</p>
+  <span class="pg">21 / 61</span>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · what it is</span><span class="pg">22 / 61</span></div>
+    <h2 class="t reveal">A distributed search and analytics engine for JSON, built on Lucene</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(4,1fr)"><div class="card "><h3>Search</h3><p>Full text with relevance, on any field.</p></div><div class="card "><h3>Aggregate</h3><p>Counts, percentiles, histograms.</p></div><div class="card "><h3>Near real time</h3><p>Searchable about 1 s after indexing.</p></div><div class="card "><h3>Distributed</h3><p>Shards and replicas across nodes.</p></div></div><div class="bar reveal"><b>Interfaces</b><span>REST + JSON · Query DSL · ES|QL · SQL</span></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · vs OpenSearch and ClickHouse</span><span class="pg">23 / 61</span></div>
+    <h2 class="t reveal">A sibling, a fork, and a different design</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:16%"></th><th style="width:28%">Elasticsearch</th><th style="width:28%">OpenSearch</th><th style="width:28%">ClickHouse</th></tr><tr><td>Origin</td><td>Elastic, since 2010</td><td>AWS fork of ES 7.10 (2021)</td><td>columnar DBMS, from Yandex</td></tr><tr><td>Licence</td><td>ELv2 / SSPL / AGPL</td><td>Apache 2.0</td><td>Apache 2.0</td></tr><tr><td>Storage</td><td>inverted index + doc values</td><td>same as ES</td><td>compressed columns (MergeTree)</td></tr><tr><td>Query</td><td>Query DSL, ES|QL, SQL</td><td>Query DSL, PPL, SQL</td><td>SQL</td></tr><tr><td>Best at</td><td>search, filtering many fields, logs</td><td>same, open licence</td><td>big GROUP BY, long history</td></tr><tr><td>Weaker at</td><td>heavy analytics over years</td><td>newest Elastic features</td><td>relevance search, schema-less</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · when to choose it</span><span class="pg">24 / 61</span></div>
+    <h2 class="t reveal">Choose by the question you ask most often</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><h3 class="h3">Elasticsearch fits</h3><ul class="list reveal "><li>“Find the events where…” over many fields</li><li>Full-text search with ranking and analyzers</li><li>Recent data, weeks to months, kept hot</li><li>Fields that change often across sources</li><li>Interactive exploration in Kibana</li></ul></div><div class="col"><h3 class="h3 red">Look elsewhere</h3><ul class="list reveal "><li>Years of history, mostly aggregated: ClickHouse</li><li>Joins and transactions: PostgreSQL</li><li>Metrics only: Prometheus</li></ul></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · what it costs</span><span class="pg">25 / 61</span></div>
+    <h2 class="t reveal">Fast reads cost memory, disk and operations work</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:30%">Cost or limit</th><th style="width:70%">What it means in practice</th></tr><tr><td>Memory and disk</td><td>Inverted indices and doc values take RAM and SSD; plan capacity per day of data</td></tr><tr><td>Mapping is fixed</td><td>A field’s type cannot change; fixing it means a new index and a reindex</td></tr><tr><td>Weak joins</td><td>Model data denormalised, one event per document</td></tr><tr><td>Not a system of record</td><td>Keep the source of truth elsewhere; the index can be rebuilt</td></tr><tr><td>Cluster operations</td><td>Shards, upgrades, snapshots, JVM tuning; someone must own it</td></tr><tr><td>Licence</td><td>Some features need a paid tier; check before you depend on one</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Why three: the master is elected by a majority of master-eligible nodes. Two nodes cannot survive losing one. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · why a cluster</span><span class="pg">26 / 61</span></div>
+    <h2 class="t reveal">One node is a server; three nodes are a service</h2>
+    <div class="body"><div class="nodes reveal"><div class="node"><b>node-1</b><span>healthy</span></div><div class="node"><b>node-2</b><span>healthy</span></div><div class="node off"><b>node-3</b><span>down</span></div><p class="nodecap">The two survivors still hold a copy of every shard and still form a majority. Searches keep working.</p></div><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>Scale out</h3><p>More data and traffic than one machine: add nodes, shards spread out.</p></div><div class="card "><h3>High availability</h3><p>Replicas on other nodes; a lost node’s shards are rebuilt elsewhere.</p></div><div class="card "><h3>Parallel queries</h3><p>Every shard searches its part at the same time.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · node roles</span><span class="pg">27 / 61</span></div>
+    <h2 class="t reveal">Big clusters give each node one job</h2>
+    <div class="body"><div class="grid reveal" style="grid-template-columns:repeat(3,1fr)"><div class="stackcol dark"><span class="lbl">Master-eligible × 3</span><i class="sel">master-1 (elected)</i><i>master-2</i><i>master-3</i></div><div class="stackcol"><span class="lbl">Data</span><i class="blue">data_hot × 3 (SSD)</i><i class="blue">data_warm × 2</i><i class="blue">data_cold / frozen</i></div><div class="stackcol"><span class="lbl">Other</span><i>coordinating-only × 2</i><i>ingest</i><i>ml, transform</i></div></div><table class="tbl reveal "><tr><th style="width:22%">Role</th><th style="width:78%">Responsible for</th></tr><tr><td>master</td><td>cluster state: indices, mappings, where each shard lives; no search traffic</td></tr><tr><td>data</td><td>holds shards; indexes, searches, aggregates; CPU, RAM and fast disk</td></tr><tr><td>coordinating</td><td>receives requests, fans out, merges results (node.roles: [ ])</td></tr><tr><td>ingest</td><td>runs ingest pipelines before indexing</td></tr></table></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Writes go to the primary, then replicas. Primary count is fixed at creation; replicas can change any time. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · shards and replicas</span><span class="pg">28 / 61</span></div>
+    <h2 class="t reveal">An index is split into shards; each has a copy elsewhere</h2>
+    <div class="body"><p class="mono reveal">cluster-demo · number_of_shards: 3 · number_of_replicas: 1</p><div class="nodes reveal"><div class="node"><b>es01</b><div class="shards"><i class="p">P0</i><i class="r">R2</i></div></div><div class="node"><b>es02</b><div class="shards"><i class="p">P1</i><i class="r">R0</i></div></div><div class="node"><b>es03</b><div class="shards"><i class="p">P2</i><i class="r">R1</i></div></div></div><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>Shard</h3><p>One Lucene index holding part of the documents. P = primary, R = replica.</p></div><div class="card "><h3>Why split</h3><p>No machine has to hold or search the whole index.</p></div><div class="card "><h3>Allocation</h3><p>A replica never sits on the same node as its primary.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: With custom routing you must pass the same routing on GET by id. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · document routing</span><span class="pg">29 / 61</span></div>
+    <h2 class="t reveal">A hash picks the shard</h2>
+    <div class="body"><div class="formula reveal">shard = hash(_routing) % number_of_primary_shards<small>_routing defaults to _id · murmur3 · simplified form</small></div><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>Default: by _id</h3><p>Even spread. Every search asks every shard.</p></div><div class="card "><h3>Custom routing</h3><p>?routing=tenant_42 puts one tenant on one shard, so its searches touch one shard. A huge tenant makes a hot shard.</p></div><div class="card red"><h3>Consequence</h3><p>Change the primary count and every hash moves. Hence fixed: use split, shrink or reindex.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · how a query runs</span><span class="pg">30 / 61</span></div>
+    <h2 class="t reveal">Scatter to every shard, gather, merge</h2>
+    <div class="body"><div class="arch reveal"><div class="box"><h4>Client</h4><p>wants the top 10</p></div><span class="arr"></span><div class="box dark"><h4>Coordinating node</h4><p>fans out, merges, returns</p></div><span class="arr both"></span><div class="stackcol wide"><span class="lbl">Shards, in parallel</span><i class="blue">shard 0 · local top 10 + scores</i><i class="blue">shard 1 · local top 10 + scores</i><i class="blue">shard 2 · local top 10 + scores</i></div></div><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>1 · Query phase</h3><p>Each shard finds its best ids and scores.</p></div><div class="card "><h3>2 · Merge</h3><p>The coordinator sorts 30 candidates, keeps the top 10.</p></div><div class="card "><h3>3 · Fetch phase</h3><p>Only those 10 documents are loaded and returned.</p></div></div><p class="note reveal">Aggregations: each shard computes a partial result and the coordinator reduces them. That is why terms counts and percentiles can be approximate.</p></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: This is the android 5.2.0 bug in the hands-on data. Keyword fields are not analyzed at all. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · the inverted index</span><span class="pg">31 / 61</span></div>
+    <h2 class="t reveal">Store which documents contain each word</h2>
+    <div class="body"><div class="arch reveal"><table class="tbl reveal fixw"><tr><th style="width:22%">doc</th><th style="width:78%">query text</th></tr><tr><td>1</td><td><span class="fa" dir="rtl" lang="fa">داروخانه شبانه روزی</span></td></tr><tr><td>2</td><td><span class="fa" dir="rtl" lang="fa">داروخانه</span></td></tr><tr><td>3</td><td><span class="fa" dir="rtl" lang="fa">نانوایی سنگکی</span></td></tr></table><span class="arr"></span><div class="box dark"><h4>Analyzer</h4><p>tokens · normalize · lowercase</p></div><span class="arr"></span><table class="tbl reveal fixw"><tr><th style="width:60%">term</th><th style="width:40%">docs</th></tr><tr><td><span class="fa" dir="rtl" lang="fa">داروخانه</span></td><td>1, 2</td></tr><tr><td><span class="fa" dir="rtl" lang="fa">روزی</span></td><td>1</td></tr><tr><td><span class="fa" dir="rtl" lang="fa">سنگکی</span></td><td>3</td></tr><tr><td><span class="fa" dir="rtl" lang="fa">شبانه</span></td><td>1</td></tr><tr><td><span class="fa" dir="rtl" lang="fa">نانوایی</span></td><td>3</td></tr></table></div><div class="grid reveal " style="grid-template-columns:repeat(2,1fr)"><div class="card "><h3>Why it is fast</h3><p>Look up a few terms in a sorted dictionary and intersect short lists. No scanning.</p></div><div class="card red"><h3>Why the analyzer matters</h3><p>If <span class="fa" dir="rtl" lang="fa">ي</span> and <span class="fa" dir="rtl" lang="fa">ی</span> are not normalized, <span class="fa" dir="rtl" lang="fa">روزي</span> and <span class="fa" dir="rtl" lang="fa">روزی</span> are different terms.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · shard size</span><span class="pg">32 / 61</span></div>
+    <h2 class="t reveal">Too big hurts recovery; too many hurts the cluster</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><h3 class="h3 red">One 400 GB shard</h3><ul class="list reveal "><li>Hours to copy when a node fails</li><li>Large merges eat I/O and space</li><li>One thread of search parallelism</li><li>Cannot spread to new nodes</li></ul></div><div class="col"><h3 class="h3 red">Ten thousand 50 MB shards</h3><ul class="list reveal "><li>Huge cluster state for the master</li><li>Per-shard memory and file overhead</li><li>A search fans out to thousands of tasks</li><li>Cause: daily indices for tiny sources</li></ul></div></div><div class="bar reveal"><b>Aim for 10–50 GB and under 200 M docs per shard</b><span>GET _cat/shards?v</span></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · index lifecycle management</span><span class="pg">33 / 61</span></div>
+    <h2 class="t reveal">Data gets cheaper as it ages, then leaves</h2>
+    <div class="body"><div class="phases reveal"><div class="ph hot"><h4>Hot</h4><p>writes + searches · SSD · rollover 50 GB / 1 day</p></div><div class="ph warm"><h4>Warm</h4><p>read-only · force-merge · fewer replicas</p></div><div class="ph cold"><h4>Cold</h4><p>rarely read · cheap disk</p></div><div class="ph frozen"><h4>Frozen</h4><p>object storage, searched on demand</p></div><div class="ph del"><h4>Delete</h4><p>after the retention period</p></div></div><div class="two reveal" style="grid-template-columns:1.2fr 1fr"><div class="col"><pre class="code reveal">PUT _ilm/policy/logs-30d   (summary)
+hot     rollover: 50gb primary shard or 1d
+warm    min_age 7d: forcemerge, fewer replicas
+delete  min_age 30d: delete</pre></div><div class="col"><ul class="list reveal "><li><b>Why:</b> retention by policy, cost follows value, shard size stays right</li><li><b>When:</b> append-only time series: logs, metrics, events</li><li><b>Data streams</b> manage the rollover indices behind one name</li></ul></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Templates apply only at creation; existing indices keep their mapping. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · index templates</span><span class="pg">34 / 61</span></div>
+    <h2 class="t reveal">Settings that apply themselves</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1.3fr 1fr"><div class="col"><pre class="code reveal">PUT _index_template/search-logs
+{
+  &quot;index_patterns&quot;: [&quot;search-logs-*&quot;],
+  &quot;composed_of&quot;: [&quot;ecs-base&quot;, &quot;ilm-30d&quot;],
+  &quot;priority&quot;: 200,
+  &quot;template&quot;: {
+    &quot;settings&quot;: { &quot;number_of_shards&quot;: 1 },
+    &quot;mappings&quot;: { &quot;dynamic&quot;: false,
+      &quot;properties&quot;: { &quot;city&quot;: { &quot;type&quot;: &quot;keyword&quot; } } }
+  }
+}</pre></div><div class="col"><div class="grid reveal " style="grid-template-columns:repeat(1,1fr)"><div class="card "><h3>Index template</h3><p>Matches names by pattern; applied when an index is created.</p></div><div class="card "><h3>Component template</h3><p>Reusable block (common fields, ILM) shared by templates.</p></div><div class="card red"><h3>Use when</h3><p>Indices are created by rollover, date or a pipeline, not by hand.</p></div></div></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Elasticsearch · dynamic mapping</span><span class="pg">35 / 61</span></div>
+    <h2 class="t reveal">Guess types only when guessing is cheap</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:18%">dynamic</th><th style="width:44%">A new field is…</th><th style="width:38%">Use when</th></tr><tr><td>true</td><td>added with a guessed type</td><td>exploring, prototypes</td></tr><tr><td>runtime</td><td>a runtime field, computed at query time</td><td>unknown fields you rarely query</td></tr><tr><td>false</td><td>kept in _source, not indexed</td><td>production logs with extra noise</td></tr><tr><td>strict</td><td>rejected: the document fails</td><td>a contract you fully control</td></tr></table><div class="grid reveal " style="grid-template-columns:repeat(2,1fr)"><div class="card red"><h3>Mapping explosion</h3><p>User-generated keys create thousands of fields and slow the whole cluster.</p></div><div class="card "><h3>Middle way</h3><p>dynamic_templates (e.g. every string → keyword) plus a field limit.</p></div></div></div>
+  </div>
+</section>
+<section class="slide divider">
+  <div class="d-num reveal">04</div><div class="d-disc"></div>
+  <h2 class="reveal">Kibana</h2><p class="reveal">The window onto Elasticsearch: explore, query, visualize, alert.</p>
+  <span class="pg">36 / 61</span>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Kibana · what it does</span><span class="pg">37 / 61</span></div>
+    <h2 class="t reveal">From raw rows to a page someone watches</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>Discover</h3><p>browse and filter events with KQL or ES|QL</p></div><div class="card "><h3>Lens and dashboards</h3><p>drag-and-drop charts, formulas, shared filters</p></div><div class="card "><h3>Alerting</h3><p>rules on queries, thresholds, anomalies</p></div><div class="card "><h3>Observability</h3><p>log streams, APM traces, infrastructure</p></div><div class="card "><h3>Security</h3><p>SIEM detections, timelines, cases</p></div><div class="card "><h3>Dev Tools</h3><p>console, ILM, templates, users and roles</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Kibana · vs Superset and Metabase</span><span class="pg">38 / 61</span></div>
+    <h2 class="t reveal">Kibana is for events; BI tools are for tables</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:16%"></th><th style="width:28%">Kibana</th><th style="width:28%">Apache Superset</th><th style="width:28%">Metabase</th></tr><tr><td>Data sources</td><td>Elasticsearch only</td><td>any SQL database</td><td>any SQL database</td></tr><tr><td>Typical user</td><td>engineers, SRE, security</td><td>analysts, data teams</td><td>business users</td></tr><tr><td>Strength</td><td>raw events, live time series, alerts</td><td>rich charts, SQL Lab</td><td>questions without SQL</td></tr><tr><td>Weak at</td><td>joins, cross-system KPIs</td><td>free-text search, log drill-down</td><td>complex analytics</td></tr></table><p class="note reveal">Pick Kibana when the question is “what happened, when, to which requests?” and the answer is in raw events.</p></div>
+  </div>
+</section>
+<section class="slide divider">
+  <div class="d-num reveal">05</div><div class="d-disc"></div>
+  <h2 class="reveal">The problem, solved step by step</h2><p class="reveal">Document · Mapping · Ingest · Discover · ES|QL · Dashboard · Debug · Findings</p>
+  <span class="pg">39 / 61</span>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Hands-on · the problem</span><span class="pg">40 / 61</span></div>
+    <h2 class="t reveal">A search service got slow, and some cities and platforms saw more errors and empty results</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>The data</h3><p>~18,000 JSONL request events: time, id, city, platform, search text, result count, status, response time.</p></div><div class="card "><h3>The catch</h3><p>Not clean: duplicates, broken lines, bad numbers, mixed formats, like real logs.</p></div><div class="card red"><h3>You will build</h3><p>An index with a mapping, a pipeline, analytic queries, a dashboard and a short finding.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: Duplicate → Logstash document_id; time zone → date filter; type → mapping; formula → the query. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Hands-on · our data path</span><span class="pg">41 / 61</span></div>
+    <h2 class="t reveal">Each component has one job</h2>
+    <div class="body"><div class="flow reveal"><div class="box "><h4>Source</h4><p>search_logs.jsonl</p></div><span class="arr"></span><div class="box red"><h4>Logstash</h4><p>parse, clean, fix time, reject bad rows</p></div><span class="arr"></span><div class="box "><h4>Elasticsearch</h4><p>index + mapping</p></div><span class="arr"></span><div class="box dark"><h4>Kibana</h4><p>Discover · ES|QL · Lens</p></div></div><p class="note reveal"><b>Exercise:</b> mark where each problem is fixed: a duplicate line, a wrong time zone, a field typed as text, a wrong error-rate formula.</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 1 · index and document</span><span class="pg">42 / 61</span></div>
+    <h2 class="t reveal">A document is one JSON event; an index is a collection of them</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><table class="tbl reveal "><tr><th style="width:40%">Elasticsearch</th><th style="width:60%">Closest idea in a database</th></tr><tr><td>index</td><td>table</td></tr><tr><td>document</td><td>row (as JSON)</td></tr><tr><td>field</td><td>column</td></tr><tr><td>mapping</td><td>schema</td></tr><tr><td>_id</td><td>primary key</td></tr><tr><td>shard</td><td>partition of a table</td></tr></table></div><div class="col"><pre class="code reveal">PUT playground/_doc/1
+{
+  "city": "tehran",
+  "query": "<span class="fa" dir="rtl" lang="fa">پیتزا</span>",
+  "status": 200,
+  "response_ms": 180
+}
+
+GET playground/_doc/1</pre></div></div></div>
+  </div>
+</section>
+<section class="slide content exercise">
+  <div class="frame">
+    <div class="top"><span class="sec">Exercise 1 · 10 min · checkpoint 1</span><span class="pg">43 / 61</span></div>
+    <h2 class="t reveal">Store one document, then find it two ways</h2>
+    <div class="body"><ol class="steps reveal"><li>Open Kibana › Dev Tools › Console and <b>devtools/01_first_document.http</b>.</li><li>Create document 1 with your own id, and a second one without an id.</li><li>Read document 1 back by its id.</li><li>Find both with a <b>match</b> query on “query”, then one with a <b>term</b> filter on city.</li><li>Run <b>GET playground/_mapping</b>: what types did Elasticsearch guess?</li></ol><p class="note reveal">Done when: GET by id returns your document and both searches return the hits you expect.</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 2 · mapping</span><span class="pg">44 / 61</span></div>
+    <h2 class="t reveal">Choose each type by the question you will ask</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:18%">Type</th><th style="width:34%">Use it to</th><th style="width:48%">Fields in our project</th></tr><tr><td>date</td><td>filter ranges, bucket by time</td><td>@timestamp</td></tr><tr><td>keyword</td><td>exact match, group by, count</td><td>request_id, city, platform, app_version, tags</td></tr><tr><td>text</td><td>full-text search, relevance</td><td>query (plus query.raw as keyword)</td></tr><tr><td>integer / short</td><td>sum, average, percentile, range</td><td>response_ms, results_count, status</td></tr></table><div class="grid reveal " style="grid-template-columns:repeat(2,1fr)"><div class="card "><h3>An id is a keyword</h3><p>not a number: you never add ids together.</p></div><div class="card "><h3>A status is a number here</h3><p>so status >= 500 works as a range.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 2 · the dynamic mapping trap</span><span class="pg">45 / 61</span></div>
+    <h2 class="t reveal">The first document decides the types forever</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><pre class="code reveal">{
+  &quot;ts&quot;: &quot;2026-11-03 13:40:00&quot;,
+  &quot;response_ms&quot;: &quot;850&quot;,
+  …
+}</pre></div><div class="col"><table class="tbl reveal "><tr><th style="width:30%">Field</th><th style="width:22%">Guessed</th><th style="width:48%">Result</th></tr><tr><td>ts</td><td>text</td><td>no time range, no histogram</td></tr><tr><td>response_ms</td><td>text</td><td>avg and p95 fail</td></tr><tr><td>request_id</td><td>text</td><td>wasted analysis</td></tr></table></div></div><pre class="code err reveal">mapper [response_ms] cannot be changed from type [text] to [integer]</pre><p class="note reveal">Fix: create the index with an explicit mapping <b>before</b> any data arrives.</p></div>
+  </div>
+</section>
+<section class="slide content exercise">
+  <div class="frame">
+    <div class="top"><span class="sec">Exercise 2 · 12 min</span><span class="pg">46 / 61</span></div>
+    <h2 class="t reveal">Break a mapping, then build the right one</h2>
+    <div class="body"><ol class="steps reveal"><li>Run Part A of <b>devtools/02_mapping.http</b>. Read every error.</li><li>Explain in one sentence why each query failed.</li><li>Run Part B: create <b>search-logs</b> and <b>search-logs-invalid</b>.</li><li>Check <b>GET search-logs/_mapping</b>: every field has the type you chose.</li></ol><p class="note reveal">Done when: both indices exist, are empty, and use the explicit mapping.</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 3 · our pipeline</span><span class="pg">47 / 61</span></div>
+    <h2 class="t reveal">A pipeline is input, filter, output</h2>
+    <div class="body"><div class="flow reveal"><div class="box "><h4>input</h4><p>file { mode => "read", codec => json }<br>broken lines → _jsonparsefailure</p></div><span class="arr"></span><div class="box red"><h4>filter</h4><p>date { timezone } · mutate { strip, lowercase }<br>numbers: regex check, else tag</p></div><span class="arr"></span><div class="box dark"><h4>output</h4><p>good rows → search-logs<br>rejects → search-logs-invalid<br>document_id = request_id</p></div></div><p class="note reveal">Bad values are not dropped and not set to 0: the field is removed and tagged, so averages stay right and the problem stays countable.</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 3 · four traps</span><span class="pg">48 / 61</span></div>
+    <h2 class="t reveal">Each of these costs an hour once</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:28%">Symptom</th><th style="width:32%">Cause</th><th style="width:40%">Setting</th></tr><tr><td>Second run reads nothing</td><td>file input remembers its position</td><td>sincedb_path => "/dev/null"</td></tr><tr><td>The data file is gone</td><td>read mode deletes finished files</td><td>file_completed_action => "log"</td></tr><tr><td>Times off by 3.5 hours</td><td>local time read as UTC</td><td>date { timezone => "Asia/Tehran" }</td></tr><tr><td>Count grows on every run</td><td>every event gets a random _id</td><td>document_id => "%{request_id}"</td></tr></table><p class="note reveal">Docker: <b>localhost</b> inside a container is the container. Use <b>http://es01:9200</b>.</p></div>
+  </div>
+</section>
+<section class="slide content exercise">
+  <div class="frame">
+    <div class="top"><span class="sec">Exercise 3 · 25 min · checkpoint 2</span><span class="pg">49 / 61</span></div>
+    <h2 class="t reveal">Load the project data and prove it is right</h2>
+    <div class="body"><ol class="steps reveal"><li>Point <b>search_logs.conf</b> at your file and cluster (DATA_PATH, ES_HOSTS, ES_USER, ES_PASSWORD).</li><li>Run it; stop it when the count stops growing.</li><li>Run it again: the main count must not change.</li><li>Open one tagged document and one from the invalid index.</li></ol><div class="stats reveal"><div><b>17,970</b><span>search-logs</span></div><div><b>36</b><span>search-logs-invalid</span></div></div><p class="note reveal">Stuck? python3 checkpoints/load_checkpoint.py loads the same result.</p></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: The deliberate urt=- failure forces the pattern to accept either a number or a dash. An unanchored pattern can match only the prefix and silently ignore the rest. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Step 3B · Grok</span><span class="pg">50 / 61</span></div>
+    <h2 class="t reveal">Build the access-log pattern one field at a time</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1.15fr 1fr"><div class="col"><pre class="code reveal">POST _ingest/pipeline/_simulate
+{
+  &quot;pipeline&quot;: { &quot;processors&quot;: [
+    { &quot;grok&quot;: { &quot;field&quot;: &quot;message&quot;,
+      &quot;patterns&quot;: [&quot;%{COMBINEDAPACHELOG}&quot;] } }
+  ]},
+  &quot;docs&quot;: [{ &quot;_source&quot;: { &quot;message&quot;:
+    &quot;... \&quot;GET /api/v1/search?... HTTP/2.0\&quot;
+     504 167 ... rt=4.212 urt=4.208 rid=req-009512&quot;
+  }}]
+}</pre></div><div class="col"><ol class="steps reveal"><li>Try <b>COMBINEDAPACHELOG</b>: rt, urt and rid are silently lost.</li><li>Write your own pattern left to right, anchored with <b>^</b> and <b>$</b>.</li><li>Split the request: method, path, params, HTTP version.</li><li>Add <b>rt</b>, <b>urt</b>, <b>rid</b> as numbers; make it pass the health check (<b>urt=-</b>).</li></ol></div></div><p class="note reveal">Use devtools/03_grok.http. _simulate gives feedback in seconds and does not require a Logstash restart.</p></div>
+  </div>
+</section>
+<section class="slide content exercise"><!-- notes: Expected: 18,064 valid documents and 22 rejects. A second run keeps the valid count at 18,064. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Exercise 3B · 25 min</span><span class="pg">51 / 61</span></div>
+    <h2 class="t reveal">Parse the gateway log, preserve rejects and prove replay safety</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1.1fr"><div class="col"><ol class="steps reveal"><li>Create <b>gateway-access</b> and <b>gateway-access-invalid</b>.</li><li>Finish the pattern in <b>devtools/03_grok.http</b>.</li><li>Run <b>logstash/access/gateway_access.conf</b>.</li><li>Run it again and compare both counts.</li></ol></div><div class="col"><pre class="code reveal">docker compose --profile ingest run --rm logstash \
+  -f /usr/share/logstash/access/gateway_access.conf
+
+GET gateway-access/_count
+GET gateway-access-invalid/_count</pre></div></div><div class="stats reveal"><div><b>18,064</b><span>parsed; unchanged on replay</span></div><div><b>22</b><span>unparsed lines per run</span></div><div><b>1,440</b><span>health checks dropped</span></div></div><p class="note reveal">The stable _id is a fingerprint of the full line. locale => en parses Nov. G4 shows Nginx adds about 6 ms; G5 finds 30 requests rejected by the JSON pipeline.</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 4 · Discover · 15 min</span><span class="pg">52 / 61</span></div>
+    <h2 class="t reveal">Read real rows before you compute anything</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><ul class="list reveal "><li>Data view <b>search-logs</b>, time field <b>@timestamp</b></li><li>Absolute time range: the data covers <b>3 Nov 2026</b></li><li>Columns: city, status, response_ms, results_count, query</li><li>Open one document and read every field</li></ul></div><div class="col"><pre class="code reveal">status &gt;= 500
+status : 200 and results_count : 0
+city : &quot;tehran&quot; and response_ms &gt; 2000
+tags : *</pre></div></div><p class="note reveal">Task: find when slow, failing requests start and stop, and in which cities. Write it down; ES|QL checks it next.</p></div>
+  </div>
+</section>
+<section class="slide content content"><!-- notes: 100.0, not 100: integer division would round every rate to 0. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Step 5 · ES|QL</span><span class="pg">53 / 61</span></div>
+    <h2 class="t reveal">A query is a pipe of steps, read top to bottom</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1.3fr 1fr"><div class="col"><pre class="code reveal">FROM search-logs
+| EVAL is_error = CASE(status &gt;= 500, 1, 0)
+| STATS requests = COUNT(*),
+        errors = SUM(is_error) BY city
+| EVAL error_rate_pct =
+        ROUND(100.0 * errors / requests, 2)
+| SORT error_rate_pct DESC</pre></div><div class="col"><table class="tbl reveal "><tr><th style="width:42%">Step</th><th style="width:58%">Does</th></tr><tr><td>FROM</td><td>pick the index</td></tr><tr><td>WHERE</td><td>keep matching rows</td></tr><tr><td>EVAL</td><td>add a column</td></tr><tr><td>STATS … BY</td><td>aggregate per group</td></tr><tr><td>SORT, LIMIT</td><td>order and cut</td></tr></table></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 5 · the denominator</span><span class="pg">54 / 61</span></div>
+    <h2 class="t reveal">A rate is only right if the denominator asks the same question</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1fr 1fr"><div class="col"><h3 class="h3 red">Wrong</h3><p class="big">No-result rate = results_count = 0 out of <b>all</b> requests. Failed requests also have 0 results, so outages look like empty searches.</p></div><div class="col"><h3 class="h3">Right</h3><p class="big">Out of <b>successful</b> requests with a valid count:</p><pre class="code reveal">WHERE status == 200
+  AND results_count IS NOT NULL</pre></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 5 · percentiles</span><span class="pg">55 / 61</span></div>
+    <h2 class="t reveal">p95: the time that 95% of requests beat</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>Why not the average</h3><p>A few 5-second timeouts pull the average up while most users saw 180 ms.</p></div><div class="card "><h3>It is an estimate</h3><p>TDigest. On our data ES|QL says 514 ms, Lens 531 ms. Compare trends, not digits.</p></div><div class="card red"><h3>Never average p95s</h3><p>The mean of per-city p95 values is not the overall p95.</p></div></div><pre class="code reveal">STATS p95_ms = PERCENTILE(response_ms, 95) BY city</pre></div>
+  </div>
+</section>
+<section class="slide content exercise"><!-- notes: Expected: tehran and karaj 13:30–14:45 Tehran time; android 5.2.0 no-result 55% vs ~6%. -->
+  <div class="frame">
+    <div class="top"><span class="sec">Exercise 4 · 30 min · checkpoint 3</span><span class="pg">56 / 61</span></div>
+    <h2 class="t reveal">Compute the four numbers, per city and over time</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(4,1fr)"><div class="card "><h3>Requests</h3><p>per city</p></div><div class="card "><h3>Error rate</h3><p>5xx out of all requests</p></div><div class="card "><h3>No-result rate</h3><p>out of successful requests</p></div><div class="card red"><h3>p95</h3><p>response time</p></div></div><p class="note reveal">Then: the same every 15 minutes for one city, the suspicious window against the rest of the day, no-result rate by platform and app version. Catch-up: esql/queries.esql (Q1–Q9).</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 6 · dashboard · checkpoint 4</span><span class="pg">57 / 61</span></div>
+    <h2 class="t reveal">A dashboard is only useful if it agrees with the query</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1.4fr 1fr"><div class="col"><table class="tbl reveal "><tr><th style="width:34%">Panel</th><th style="width:66%">Lens</th></tr><tr><td>Requests</td><td>Metric · count()</td></tr><tr><td>Error rate</td><td>count(kql='status >= 500') / count()</td></tr><tr><td>No-result rate</td><td>formula over status : 200 only</td></tr><tr><td>p95 by city</td><td>Line · 15 min · split by city</td></tr><tr><td>By app version</td><td>Bar · no-result rate</td></tr><tr><td>Controls</td><td>options list: city, platform</td></tr></table></div><div class="col"><div class="stats col1"><div><b>17,970</b><span>requests</span></div><div><b>1.57%</b><span>error rate</span></div><div><b>15.79%</b><span>no-result rate</span></div><div><b>~531 ms</b><span>p95 in Lens</span></div></div></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 7 · troubleshooting</span><span class="pg">58 / 61</span></div>
+    <h2 class="t reveal">The worst pipeline bugs raise no error</h2>
+    <div class="body"><table class="tbl reveal "><tr><th style="width:24%">Check</th><th style="width:42%">Query</th><th style="width:34%">Catches</th></tr><tr><td>Count</td><td>_count vs COUNT_DISTINCT(id)</td><td>duplicates</td></tr><tr><td>Distinct values</td><td>STATS COUNT(*) BY city</td><td>split categories</td></tr><tr><td>Time</td><td>MIN / MAX @timestamp, spike start</td><td>time zone, s vs ms</td></tr><tr><td>Types</td><td>GET index/_mapping</td><td>text where a number belongs</td></tr><tr><td>Rejects</td><td>tags, the invalid index</td><td>silent data loss</td></tr></table><p class="note reveal">Order: <b>symptom</b> (numbers) → <b>cause</b> (one line of config) → <b>fix</b> → <b>proof</b> (the same query again).</p></div>
+  </div>
+</section>
+<section class="slide content exercise"><!-- notes: Three bugs: no document_id (18,150), no lowercase (Tehran, TEHRAN), no timezone (spike at 13:30 UTC). -->
+  <div class="frame">
+    <div class="top"><span class="sec">Exercise 5 · 25 min</span><span class="pg">59 / 61</span></div>
+    <h2 class="t reveal">This pipeline runs cleanly and is wrong. Find out how.</h2>
+    <div class="body"><ol class="steps reveal"><li>Create <b>search-logs-debug</b> and <b>search-logs-debug-invalid</b> with the project mappings.</li><li>Run <b>logstash/troubleshooting/search_logs_broken.conf</b>.</li><li>Compare search-logs-debug with search-logs using the checks.</li><li>For each difference: symptom, cause, fix, proof.</li></ol><p class="note reveal">There is more than one bug.</p></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">Step 8 · findings · 3 min per team</span><span class="pg">60 / 61</span></div>
+    <h2 class="t reveal">Say what you saw, apart from what you think caused it</h2>
+    <div class="body"><div class="grid reveal " style="grid-template-columns:repeat(3,1fr)"><div class="card "><h3>Observation</h3><p>Which slice changed (when, where, which platform), by how much, against what baseline. Backed by a query.</p></div><div class="card red"><h3>Hypothesis</h3><p>A possible cause. Labelled as a guess, never stated as fact.</p></div><div class="card "><h3>Missing data</h3><p>What would confirm or reject the guess: server metrics, deploy logs, release notes.</p></div></div></div>
+  </div>
+</section>
+<section class="slide content content">
+  <div class="frame">
+    <div class="top"><span class="sec">After class · the task</span><span class="pg">61 / 61</span></div>
+    <h2 class="t reveal">Payment events from four gateways</h2>
+    <div class="body"><div class="two reveal" style="grid-template-columns:1.2fr 1fr"><div class="col"><p class="big">Ingest and clean the events, handle replayed deliveries, and per gateway compute failure rate, p95 processing time and successful amount. Then build a dashboard and write a one-page analysis.</p><p class="note reveal">4–6 hours · brief in task/README.md</p></div><div class="col"><table class="tbl reveal "><tr><th style="width:70%">Criterion</th><th style="width:30%">Points</th></tr><tr><td>Data modelling</td><td>15</td></tr><tr><td>Ingest and cleaning</td><td>20</td></tr><tr><td>Duplicate control</td><td>15</td></tr><tr><td>Calculations</td><td>20</td></tr><tr><td>Dashboard</td><td>15</td></tr><tr><td>Analysis and docs</td><td>15</td></tr></table></div></div></div>
+  </div>
+</section>
+  </main>
+</div>
+<div class="progress" id="progress"></div>
+<div class="edit-hotzone" aria-hidden="true"></div>
+<button class="edit-toggle" id="editToggle" title="Edit mode (E)">Edit</button>
+
+<script>
+/* ===========================================
+   SLIDE PRESENTATION CONTROLLER
+   Keys: → ← Space PageUp/PageDown Home End · swipe · wheel · #N in the URL
+   =========================================== */
+class SlidePresentation {
+    constructor() {
+        this.slides = document.querySelectorAll('.slide');
+        this.stage = document.getElementById('deckStage');
+        this.progress = document.getElementById('progress');
+        this.current = 0;
+        this.setupStageScale();
+        this.setupKeyboardNav();
+        this.setupTouchNav();
+        this.setupWheelNav();
+        const start = parseInt(location.hash.slice(1), 10);
+        this.show(isNaN(start) ? 0 : start - 1);
+    }
+    /* Scale the 1920×1080 stage to fit the window; never reflow it */
+    setupStageScale() {
+        const scale = () => {
+            const f = Math.min(innerWidth / 1920, innerHeight / 1080);
+            this.stage.style.transform = `translate(${(innerWidth - 1920 * f) / 2}px, ${(innerHeight - 1080 * f) / 2}px) scale(${f})`;
+        };
+        scale();
+        addEventListener('resize', scale);
+    }
+    setupKeyboardNav() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target.isContentEditable) return;
+            if (['ArrowRight', 'ArrowDown', ' ', 'PageDown'].includes(e.key)) { e.preventDefault(); this.show(this.current + 1); }
+            if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); this.show(this.current - 1); }
+            if (e.key === 'Home') this.show(0);
+            if (e.key === 'End') this.show(this.slides.length - 1);
+        });
+    }
+    setupTouchNav() {
+        let x0 = null;
+        addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+        addEventListener('touchend', (e) => {
+            if (x0 === null) return;
+            const dx = e.changedTouches[0].clientX - x0;
+            if (Math.abs(dx) > 50) this.show(this.current + (dx < 0 ? 1 : -1));
+            x0 = null;
+        });
+    }
+    setupWheelNav() {
+        let lock = false;
+        addEventListener('wheel', (e) => {
+            if (lock || Math.abs(e.deltaY) < 30) return;
+            lock = true; setTimeout(() => (lock = false), 600);
+            this.show(this.current + (e.deltaY > 0 ? 1 : -1));
+        }, { passive: true });
+    }
+    show(i) {
+        this.current = Math.max(0, Math.min(i, this.slides.length - 1));
+        this.slides.forEach((s, k) => {
+            s.classList.toggle('active', k === this.current);
+            s.classList.toggle('visible', k === this.current);
+        });
+        this.progress.style.width = ((this.current + 1) / this.slides.length * 100) + '%';
+        history.replaceState(null, '', '#' + (this.current + 1));
+    }
+}
+const deck = new SlidePresentation();
+
+/* ===========================================
+   INLINE EDITING
+   Hover the top-left corner or press E. Edits auto-save to localStorage;
+   Ctrl/Cmd+S downloads the edited HTML.
+   =========================================== */
+const editor = {
+    isActive: false,
+    key: 'elk-workshop-edits-v3',
+    targets() { return this.stageEl.querySelectorAll('h1,h2,h3,h4,p,li,td,th,pre,small,i,b,span.sec'); },
+    init() {
+        this.stageEl = document.getElementById('deckStage');
+        this.btn = document.getElementById('editToggle');
+        try {
+            const saved = localStorage.getItem(this.key);
+            if (saved) { this.stageEl.innerHTML = saved; deck.slides = document.querySelectorAll('.slide'); deck.show(deck.current); }
+        } catch (e) { /* storage unavailable: start from the file */ }
+    },
+    toggleEditMode() {
+        this.isActive = !this.isActive;
+        this.btn.classList.toggle('active', this.isActive);
+        this.btn.textContent = this.isActive ? 'Done' : 'Edit';
+        this.targets().forEach((el) => el.setAttribute('contenteditable', this.isActive ? 'true' : 'false'));
+        if (!this.isActive) this.save();
+    },
+    save() {
+        try { localStorage.setItem(this.key, this.stageEl.innerHTML); } catch (e) { /* ignore */ }
+    },
+    download() {
+        this.targets().forEach((el) => el.removeAttribute('contenteditable'));
+        const blob = new Blob(['<!DOCTYPE html>\n' + document.documentElement.outerHTML], { type: 'text/html' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'elk-workshop.html'; a.click();
+        if (this.isActive) this.targets().forEach((el) => el.setAttribute('contenteditable', 'true'));
+    },
+};
+editor.init();
+document.getElementById('editToggle').addEventListener('click', () => editor.toggleEditMode());
+const hotzone = document.querySelector('.edit-hotzone');
+const editToggle = document.getElementById('editToggle');
+let hideTimeout = null;
+hotzone.addEventListener('mouseenter', () => { clearTimeout(hideTimeout); editToggle.classList.add('show'); });
+hotzone.addEventListener('mouseleave', () => { hideTimeout = setTimeout(() => { if (!editor.isActive) editToggle.classList.remove('show'); }, 400); });
+editToggle.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+editToggle.addEventListener('mouseleave', () => { hideTimeout = setTimeout(() => { if (!editor.isActive) editToggle.classList.remove('show'); }, 400); });
+hotzone.addEventListener('click', () => editor.toggleEditMode());
+document.addEventListener('keydown', (e) => {
+    if ((e.key === 'e' || e.key === 'E') && !e.target.isContentEditable) editor.toggleEditMode();
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); editor.save(); editor.download(); }
+});
+document.addEventListener('input', () => editor.save());
+</script>
+</body>
+</html>

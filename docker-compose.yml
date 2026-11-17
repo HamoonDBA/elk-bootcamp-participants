@@ -1,0 +1,164 @@
+# Reference local stack for the workshop (Elasticsearch, Kibana, Logstash 8.19.5).
+# Elasticsearch runs as a 3-node cluster (es01, es02, es03), every node master + data.
+# Security is on (username/password). The nodes talk to each other over TLS
+# (transport layer, required for a multi-node cluster with security on); HTTP
+# stays plain to keep the class setup simple. Do not use this configuration in production.
+# Node data is kept in ./volumes/ (delete that folder for a clean start);
+# the certificates live in the named volume "certs" (`docker compose down -v` removes it).
+# Linux hosts: run `sudo chown -R 1000:0 volumes` once, the containers run as uid 1000,
+# and set vm.max_map_count=262144 (see docs/prerequisites.html).
+#
+#   docker compose up -d                       # cluster + Kibana
+#   docker compose --profile ingest up logstash  # run the JSON pipeline (after creating the index)
+#   docker compose --profile ingest run --rm logstash \
+#     -f /usr/share/logstash/access/gateway_access.conf   # Grok pipeline for the Nginx access log
+#   docker compose --profile ingest run --rm logstash \
+#     -f /usr/share/logstash/troubleshooting/search_logs_broken.conf   # troubleshooting block
+#   docker compose stop es02 / start es02     # node failure demo (devtools/00_cluster.http)
+
+x-es-node: &es-node
+  image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+  depends_on:
+    certs:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+    interval: 10s
+    retries: 30
+
+x-es-env: &es-env
+  cluster.name: elk-workshop
+  cluster.initial_master_nodes: es01,es02,es03
+  ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+  ES_JAVA_OPTS: -Xms512m -Xmx512m
+  xpack.security.enabled: "true"
+  xpack.security.http.ssl.enabled: "false"
+  xpack.security.transport.ssl.enabled: "true"
+  xpack.security.transport.ssl.certificate_authorities: certs/ca/ca.crt
+  xpack.security.transport.ssl.verification_mode: certificate
+  # Laptops are often >95% full; without this the nodes turn read-only and
+  # cannot even start the security index. Class use only.
+  cluster.routing.allocation.disk.threshold_enabled: "false"
+
+services:
+  # One-shot job: create a CA and one certificate per node with elasticsearch-certutil.
+  # Runs only when the certs volume is empty.
+  certs:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    user: "0"
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    command: >
+      bash -c '
+        set -e;
+        D=/usr/share/elasticsearch/config/certs;
+        if [ ! -f $$D/ca/ca.crt ]; then
+          bin/elasticsearch-certutil ca --silent --pem --out $$D/ca.zip;
+          unzip -q -o $$D/ca.zip -d $$D;
+        fi;
+        if [ ! -f $$D/es01/es01.crt ]; then
+          printf "instances:\n" > $$D/instances.yml;
+          for n in es01 es02 es03; do printf "  - name: $$n\n    dns: [$$n, localhost]\n" >> $$D/instances.yml; done;
+          bin/elasticsearch-certutil cert --silent --pem --out $$D/certs.zip --in $$D/instances.yml --ca-cert $$D/ca/ca.crt --ca-key $$D/ca/ca.key;
+          unzip -q -o $$D/certs.zip -d $$D;
+        fi;
+        chown -R root:root $$D;
+        find $$D -type d -exec chmod 750 {} +;
+        find $$D -type f -exec chmod 640 {} +;
+        ls $$D;
+        echo certificates ready'
+
+  es01:
+    <<: *es-node
+    environment:
+      <<: *es-env
+      node.name: es01
+      discovery.seed_hosts: es02,es03
+      xpack.security.transport.ssl.key: certs/es01/es01.key
+      xpack.security.transport.ssl.certificate: certs/es01/es01.crt
+    ports:
+      - "9200:9200"
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs:ro
+      - ./volumes/es01:/usr/share/elasticsearch/data
+
+  es02:
+    <<: *es-node
+    environment:
+      <<: *es-env
+      node.name: es02
+      discovery.seed_hosts: es01,es03
+      xpack.security.transport.ssl.key: certs/es02/es02.key
+      xpack.security.transport.ssl.certificate: certs/es02/es02.crt
+    ports:
+      - "9201:9200"
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs:ro
+      - ./volumes/es02:/usr/share/elasticsearch/data
+
+  es03:
+    <<: *es-node
+    environment:
+      <<: *es-env
+      node.name: es03
+      discovery.seed_hosts: es01,es02
+      xpack.security.transport.ssl.key: certs/es03/es03.key
+      xpack.security.transport.ssl.certificate: certs/es03/es03.crt
+    ports:
+      - "9202:9200"
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs:ro
+      - ./volumes/es03:/usr/share/elasticsearch/data
+
+  # One-shot job: set the password Kibana uses to talk to Elasticsearch.
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    depends_on:
+      es01:
+        condition: service_healthy
+    command: >
+      bash -c 'until curl -s -o /dev/null -w "%{http_code}" -u elastic:${ELASTIC_PASSWORD}
+      -X POST -H "Content-Type: application/json"
+      http://es01:9200/_security/user/kibana_system/_password
+      -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q 200; do sleep 2; done; echo kibana_system password set'
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      # Kibana spreads its requests over all three nodes and keeps working if one stops.
+      - ELASTICSEARCH_HOSTS=["http://es01:9200","http://es02:9200","http://es03:9200"]
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      # Needed by alerting (Stack Monitoring rules); any string of 32+ chars, keep it stable.
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+    ports:
+      - "5601:5601"
+    volumes:
+      - ./volumes/kibana:/usr/share/kibana/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${STACK_VERSION}
+    profiles: ["ingest"]
+    depends_on:
+      es01:
+        condition: service_healthy
+    environment:
+      # Space-separated list: the elasticsearch output balances over all nodes.
+      - ES_HOSTS=http://es01:9200 http://es02:9200 http://es03:9200
+      - ES_USER=elastic
+      - ES_PASSWORD=${ELASTIC_PASSWORD}
+      - DATA_PATH=/data/search_logs.jsonl
+      - ACCESS_LOG_PATH=/data/nginx_access.log
+      - XPACK_MONITORING_ENABLED=false
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/access:/usr/share/logstash/access:ro
+      - ./logstash/troubleshooting:/usr/share/logstash/troubleshooting:ro
+      - ./data:/data:ro
+
+volumes:
+  certs:
